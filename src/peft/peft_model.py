@@ -170,6 +170,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         adapter_name: str = "default",
         is_trainable: bool = False,
         config: Optional[PeftConfig] = None,
+        device: str = None,
         **kwargs: Any,
     ):
         r"""
@@ -228,7 +229,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             model = cls(model, config, adapter_name)
         else:
             model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](model, config, adapter_name)
-        model.load_adapter(model_id, adapter_name, is_trainable=is_trainable, **kwargs)
+        model.load_adapter(model_id, adapter_name, is_trainable=is_trainable, device=device, **kwargs)
         return model
 
     def _setup_prompt_encoder(self, adapter_name: str):
@@ -429,7 +430,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
 
         return hf_hub_download_kwargs, other_kwargs
 
-    def load_adapter(self, model_id: str, adapter_name: str, is_trainable: bool = False, **kwargs: Any):
+    def load_adapter(self, model_id: str, adapter_name: str, is_trainable: bool = False, device: str = None, **kwargs: Any):
         from .mapping import PEFT_TYPE_TO_CONFIG_MAPPING
 
         hf_hub_download_kwargs, kwargs = self._split_kwargs(kwargs)
@@ -489,11 +490,15 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
                         f"Please check that the file {WEIGHTS_NAME} or {SAFETENSORS_WEIGHTS_NAME} is present at {model_id}."
                     )
 
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading peft adapter weights on device: {device}")
+
         if use_safetensors:
-            adapters_weights = safe_load_file(filename, device="cuda" if torch.cuda.is_available() else "cpu")
+            adapters_weights = safe_load_file(filename, device=device)
         else:
             adapters_weights = torch.load(
-                filename, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                filename, map_location=torch.device(device)
             )
 
         # load the weights into the model
