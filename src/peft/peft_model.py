@@ -40,6 +40,7 @@ from .tuners import (
     AdaLoraModel,
     AdaptionPromptModel,
     IA3Model,
+    LoraConfig,
     LoraModel,
     PrefixEncoder,
     PromptEmbedding,
@@ -106,6 +107,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         self.modules_to_save = None
         self.peft_config = {}
         self.active_adapter = adapter_name
+        self.active_adapters = None
         self.peft_type = peft_config.peft_type
         if not isinstance(peft_config, PromptLearningConfig):
             self.peft_config[adapter_name] = peft_config
@@ -593,6 +595,16 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         if not isinstance(self.peft_config[adapter_name], PromptLearningConfig):
             self.base_model.set_adapter(adapter_name)
         _set_adapter(self, adapter_name)
+
+    def set_adapters(self, adapter_names: List[str]):
+        for adapter_name in adapter_names:
+            if adapter_name not in self.peft_config:
+                raise ValueError(f"Adapter {adapter_name} not found. Please register"
+                                 f"with add_adapter")
+            if not isinstance(self.peft_config[adapter_name], LoraConfig):
+                raise ValueError(f"Multi adapter supported only for Lora")
+        self.active_adapters = adapter_names
+
 
     @property
     def base_model_torch_dtype(self):

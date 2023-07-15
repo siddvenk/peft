@@ -797,8 +797,22 @@ class Linear(nn.Linear, LoraLayer):
 
     def forward(self, x: torch.Tensor):
         previous_dtype = x.dtype
-        if self.active_adapter not in self.lora_A.keys():
+        if self.active_adapter not in self.lora_A.keys() and self.active_adapters is None:
             return F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
+        if self.active_adapters is not None:
+            # To Start just assume the list of active adapters directly maps to
+            # the inputs (we'll figure this out later with a better way to do it)
+            base_result = F.linear(x, transpose(self.weight, self.fan_in_fan_out, bias=self.bias))
+            for idx, adapter_name in self.active_adapters:
+                this_x = x[idx]
+                this_x = this_x.to(self.lora_A[adapter_name].weight.dtype)
+                base_result[idx] += (
+                    self.lora_B[adapter_name](
+                        self.lora_A[adapter_name](self.lora_dropout[adapter_name](this_x))
+                    )
+                    * self.scaling[adapter_name]
+                )
+            return result
         if self.disable_adapters:
             if self.r[self.active_adapter] > 0 and self.merged:
                 self.unmerge()
@@ -865,6 +879,20 @@ class Embedding(nn.Embedding, LoraLayer):
         return transpose(self.lora_embedding_B[adapter] @ self.lora_embedding_A[adapter], True) * self.scaling[adapter]
 
     def forward(self, x: torch.Tensor):
+        if self.active_adapters is not None:
+            result = nn.Embedding.forward(self, x)
+            for idx, adapter_name in enumerate(self.active_adapters):
+                if self.r[adapter_name] > 0:
+                    after_A = F.embedding(
+                        x[idx],
+                        self.lora_embedding_A[adapter_name].T,
+                        self.padding_idx,
+                        self.max_norm,
+                        self.norm_type,
+                        self.scale_grad_by_freq,
+                        self.sparse,
+                    )
+                    result[idx] += (after_A @ self.lora_embedding_B[adapter_name].T) * self.scaling[adapter_name]
         if self.disable_adapters:
             if self.r[self.active_adapter] > 0 and self.merged:
                 self.unmerge()
